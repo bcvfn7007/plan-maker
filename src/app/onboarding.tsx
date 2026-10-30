@@ -4,7 +4,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { Level, Place } from '../data/exercises';
 import { useAppState } from '../logic/AppState';
-import type { Goal, Profile } from '../logic/plan';
+import type { Coach, Goal, Profile } from '../logic/plan';
 import { Button, Chip, text } from '../ui';
 
 type Question<T> = { title: string; options: { value: T; label: string }[] };
@@ -40,15 +40,24 @@ const MINUTES: Question<Profile['minutes']> = {
   ],
 };
 
+const COACH: Question<Coach> = {
+  title: 'Кто будет показывать упражнения?',
+  options: [
+    { value: 'male', label: 'Парень' },
+    { value: 'female', label: 'Девушка' },
+  ],
+};
+
 export default function Onboarding() {
   const { profile, saveProfile } = useAppState();
   const [goal, setGoal] = useState<Goal>(profile?.goal ?? 'fit');
   const [level, setLevel] = useState<Level>(profile?.level ?? 'beginner');
   const [place, setPlace] = useState<Place>(profile?.place ?? 'home');
   const [minutes, setMinutes] = useState<Profile['minutes']>(profile?.minutes ?? 30);
+  const [coach, setCoach] = useState<Coach>(profile?.coach ?? 'male');
 
   const save = async () => {
-    await saveProfile({ goal, level, place, minutes, disliked: profile?.disliked ?? [] });
+    await saveProfile({ goal, level, place, minutes, coach, disliked: profile?.disliked ?? [] });
     router.replace('/today');
   };
 
@@ -60,6 +69,7 @@ export default function Onboarding() {
       <Choice q={LEVEL} value={level} onChange={setLevel} />
       <Choice q={PLACE} value={place} onChange={setPlace} />
       <Choice q={MINUTES} value={minutes} onChange={setMinutes} />
+      <Choice q={COACH} value={coach} onChange={setCoach} />
       <Button title="Готово, составить план" onPress={save} style={{ marginTop: 12 }} />
     </ScrollView>
   );

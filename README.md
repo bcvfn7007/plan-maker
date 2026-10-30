@@ -25,7 +25,7 @@ npx expo start --web  # в браузере
 - `src/data/exercises.ts` — упражнения: шаги, ошибки, анимация.
 - `src/logic/plan.ts` — составление плана без ИИ.
 - `src/three/animations.ts` — позы 3D-человечка для каждого упражнения.
-- `assets/models/Xbot.glb` — 3D-модель человека (Mixamo, из примеров three.js).
+- `assets/models/coach-male.glb`, `coach-female.glb` — 3D-тренеры (парень и девушка). Собраны скриптом `tools/character/build.py` из бесплатной базы MakeHuman (лицензия CC0): тело, скелет в формате Mixamo, одежда и кроссовки.
 
 ## Дальше
 

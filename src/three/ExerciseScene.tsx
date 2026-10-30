@@ -32,8 +32,8 @@ export function ExerciseScene({ source, animation, view, playing, muscles }: Pro
   return (
     <>
       <color attach="background" args={[colors.stage]} />
-      <hemisphereLight args={['#ffffff', '#445566', 1.1]} />
-      <directionalLight position={[2.5, 4, 3]} intensity={2.6} />
+      <hemisphereLight args={['#ffffff', '#445566', 1.6]} />
+      <directionalLight position={[2.5, 4, 3]} intensity={3} />
       {/* Neon rim light from behind outlines the figure against the dark stage. */}
       <directionalLight position={[-3, 2.5, -3]} intensity={3.2} color={colors.accent} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]}>
@@ -62,7 +62,10 @@ function Character({ source, animation, view, playing, muscles }: Props) {
         mesh.geometry = mesh.geometry.clone();
         const joints = (mesh.material as MeshStandardMaterial).name?.toLowerCase().includes('joint');
         mesh.userData.joints = joints;
-        mesh.material = new MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.05 });
+        // Characters may bring their own colours (skin, clothes); keep them as the base.
+        const own = mesh.geometry.attributes.color;
+        if (own) mesh.userData.base = Float32Array.from({ length: own.count * 3 }, (_, i) => own.getComponent(Math.floor(i / 3), i % 3));
+        mesh.material = new MeshStandardMaterial({ vertexColors: true, roughness: own ? 0.6 : 0.35, metalness: own ? 0 : 0.05 });
       }
     });
     return m;
@@ -104,7 +107,7 @@ function findHips(model: Object3D): Object3D {
   return hips;
 }
 
-/** Colours the skin by how strongly each vertex follows the working bones. */
+/** Tints the body towards the accent by how strongly each vertex follows the working bones. */
 function paintMuscles(model: Object3D, muscles: string[]) {
   const wanted = new Set(muscles);
   const c = new Color();
@@ -124,7 +127,10 @@ function paintMuscles(model: Object3D, muscles: string[]) {
       for (let v = 0; v < count; v++) {
         let w = 0;
         for (let k = 0; k < 4; k++) if (hot.has(index.getComponent(v, k))) w += weight.getComponent(v, k);
-        c.copy(BODY).lerp(WORKING, Math.min(1, w * 1.3));
+        const base: Float32Array | undefined = mesh.userData.base;
+        if (base) c.setRGB(base[v * 3], base[v * 3 + 1], base[v * 3 + 2]);
+        else c.copy(BODY);
+        c.lerp(WORKING, Math.min(1, w * 1.3));
         colors.set([c.r, c.g, c.b], v * 3);
       }
     }
