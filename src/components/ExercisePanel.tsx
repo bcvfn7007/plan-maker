@@ -15,7 +15,7 @@ export function ExerciseViewer({ exercise, height }: { exercise: Exercise; heigh
 
   return (
     <View>
-      <Viewer3D animation={exercise.animation} view={view} playing={playing} height={height} />
+      <Viewer3D animation={exercise.animation} view={view} playing={playing} height={height} muscles={exercise.muscles} />
       <View style={styles.controls}>
         <Pressable style={styles.control} onPress={() => setView(view === 'front' ? 'side' : 'front')}>
           <Text style={styles.controlText}>{view === 'front' ? 'Вид сбоку' : 'Вид спереди'}</Text>
