@@ -2,11 +2,16 @@ import { EXERCISES, WARMUP_ID, type Exercise, type Focus, type Level, type Place
 
 export type Goal = 'strength' | 'weightloss' | 'fit';
 
+/** Who demonstrates the exercises. */
+export type Coach = 'male' | 'female';
+
 export type Profile = {
   goal: Goal;
   level: Level;
   place: Place;
   minutes: 20 | 30 | 45;
+  /** Missing in profiles saved before the choice existed. */
+  coach?: Coach;
   /** Exercises the user swapped out: the plan avoids them next time. */
   disliked: string[];
 };
