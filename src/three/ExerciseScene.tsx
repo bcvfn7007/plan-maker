@@ -4,6 +4,7 @@ import { BufferAttribute, Color, Mesh, MeshStandardMaterial, Object3D, SkinnedMe
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
+import { colors } from '../ui';
 import { PosePlayer, type AnimationId } from './animations';
 
 export type View = 'front' | 'side';
@@ -23,20 +24,25 @@ type Props = {
   muscles: string[];
 };
 
-const BODY = new Color('#e9ecf1');
-const JOINTS = new Color('#2b3445');
-const WORKING = new Color('#ff6a3d');
+const BODY = new Color('#d9dde5');
+const JOINTS = new Color('#1b1f27');
+const WORKING = new Color(colors.accent);
 
 export function ExerciseScene({ source, animation, view, playing, muscles }: Props) {
   return (
     <>
-      <color attach="background" args={['#eef2f7']} />
-      <hemisphereLight args={['#ffffff', '#8a99b0', 1.6]} />
-      <directionalLight position={[3, 5, 4]} intensity={2.2} />
-      <directionalLight position={[-3, 2, -2]} intensity={0.6} />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-        <circleGeometry args={[2.6, 48]} />
-        <meshStandardMaterial color="#d9e1ec" />
+      <color attach="background" args={[colors.stage]} />
+      <hemisphereLight args={['#ffffff', '#445566', 1.1]} />
+      <directionalLight position={[2.5, 4, 3]} intensity={2.6} />
+      {/* Neon rim light from behind outlines the figure against the dark stage. */}
+      <directionalLight position={[-3, 2.5, -3]} intensity={3.2} color={colors.accent} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]}>
+        <circleGeometry args={[1.5, 64]} />
+        <meshBasicMaterial color={colors.accent} transparent opacity={0.12} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[4, 64]} />
+        <meshBasicMaterial color="#171b20" />
       </mesh>
       <Character source={source} animation={animation} view={view} playing={playing} muscles={muscles} />
     </>
@@ -56,7 +62,7 @@ function Character({ source, animation, view, playing, muscles }: Props) {
         mesh.geometry = mesh.geometry.clone();
         const joints = (mesh.material as MeshStandardMaterial).name?.toLowerCase().includes('joint');
         mesh.userData.joints = joints;
-        mesh.material = new MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.05 });
+        mesh.material = new MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.05 });
       }
     });
     return m;

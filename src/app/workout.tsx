@@ -6,7 +6,7 @@ import { ExerciseTips, ExerciseViewer } from '../components/ExercisePanel';
 import { getExercise } from '../data/exercises';
 import { useAppState } from '../logic/AppState';
 import { storage } from '../logic/storage';
-import { Button, Card, colors, text } from '../ui';
+import { Button, colors, Tag, text } from '../ui';
 
 type Phase = 'ready' | 'work' | 'rest' | 'done';
 
@@ -72,38 +72,53 @@ export default function Workout() {
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${(index / plan.items.length) * 100}%` }]} />
+      <View style={styles.segments}>
+        {plan.items.map((_, i) => (
+          <View
+            key={i}
+            style={[styles.segment, i < index && { backgroundColor: colors.accent }, i === index && { backgroundColor: colors.accent, opacity: 0.55 }]}
+          />
+        ))}
       </View>
       <Text style={text.muted}>
         Упражнение {index + 1} из {plan.items.length}
-        {item.sets > 1 ? ` · подход ${set} из ${item.sets}` : ''}
       </Text>
       <Text style={text.h1}>{exercise.name}</Text>
+      <View style={styles.tags}>
+        {exercise.targets.map((t) => (
+          <Tag key={t} label={t} strong />
+        ))}
+      </View>
 
-      <ExerciseViewer exercise={exercise} height={340} />
+      <ExerciseViewer exercise={exercise} height={320} />
 
       {phase === 'rest' ? (
-        <Card style={{ alignItems: 'center', gap: 6 }}>
-          <Text style={text.muted}>Отдых</Text>
-          <Text style={styles.big}>{restSeconds}</Text>
-          {set >= item.sets && nextExercise && <Text style={text.muted}>Дальше: {nextExercise.name}</Text>}
-          <Button kind="secondary" title="Пропустить отдых" onPress={next} style={{ alignSelf: 'stretch', marginTop: 6 }} />
-        </Card>
+        <View style={styles.counter}>
+          <View>
+            <Text style={text.muted}>Отдых</Text>
+            <Text style={text.big}>{restSeconds}</Text>
+          </View>
+          <Text style={[text.muted, { textAlign: 'right' }]}>
+            {set >= item.sets && nextExercise ? `Дальше:\n${nextExercise.name}` : `Дальше:\nподход ${set + 1}`}
+          </Text>
+        </View>
       ) : (
-        <Card style={{ alignItems: 'center', gap: 6 }}>
-          <Text style={text.muted}>{item.timed ? 'Держи' : 'Сделай'}</Text>
-          <Text style={styles.big}>{item.timed ? (phase === 'work' ? workSeconds : item.amount) : item.amount}</Text>
-          <Text style={text.muted}>{item.timed ? 'секунд' : 'повторений'}</Text>
-          {item.timed && phase === 'ready' && (
-            <Button title="Старт" onPress={() => setPhase('work')} style={{ alignSelf: 'stretch', marginTop: 6 }} />
-          )}
-          {item.timed && phase === 'work' && (
-            <Button kind="secondary" title="Закончить раньше" onPress={finishSet} style={{ alignSelf: 'stretch', marginTop: 6 }} />
-          )}
-          {!item.timed && <Button title="Подход сделан" onPress={finishSet} style={{ alignSelf: 'stretch', marginTop: 6 }} />}
-        </Card>
+        <View style={styles.counter}>
+          <View>
+            <Text style={text.muted}>{item.sets > 1 ? `Подход ${set} из ${item.sets}` : 'Один подход'}</Text>
+            <Text style={text.big}>{item.timed ? (phase === 'work' ? workSeconds : item.amount) : item.amount}</Text>
+          </View>
+          <Text style={[text.muted, { textAlign: 'right' }]}>
+            {item.timed ? 'секунд' : 'повторений'}
+            {'\n'}отдых {item.restSeconds} сек
+          </Text>
+        </View>
       )}
+
+      {phase === 'rest' && <Button kind="secondary" title="Пропустить отдых" onPress={next} />}
+      {phase !== 'rest' && item.timed && phase === 'ready' && <Button title="Старт" onPress={() => setPhase('work')} />}
+      {phase !== 'rest' && item.timed && phase === 'work' && <Button kind="secondary" title="Закончить раньше" onPress={finishSet} />}
+      {phase !== 'rest' && !item.timed && <Button title="Подход сделан" onPress={finishSet} />}
 
       <Button kind="ghost" title={showTips ? 'Скрыть подсказки' : 'Как делать правильно'} onPress={() => setShowTips(!showTips)} />
       {showTips && <ExerciseTips exercise={exercise} />}
@@ -137,7 +152,8 @@ function useCountdown(seconds: number, onEnd: () => void) {
 
 const styles = StyleSheet.create({
   page: { padding: 20, gap: 14, maxWidth: 560, width: '100%', alignSelf: 'center' },
-  big: { fontSize: 56, fontWeight: '800', color: colors.accent },
-  progressTrack: { height: 6, borderRadius: 3, backgroundColor: colors.line, overflow: 'hidden' },
-  progressFill: { height: 6, backgroundColor: colors.accent },
+  segments: { flexDirection: 'row', gap: 6 },
+  segment: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.line },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  counter: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
 });

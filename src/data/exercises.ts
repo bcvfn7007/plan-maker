@@ -17,6 +17,8 @@ export type Exercise = {
   animation: AnimationId;
   /** Skeleton bones whose muscles light up in the 3D view. */
   muscles: string[];
+  /** The same muscles in words, for tags. */
+  targets: string[];
   steps: string[];
   mistakes: string[];
   avoidIf?: string;
@@ -34,6 +36,7 @@ export const EXERCISES: Exercise[] = [
     amount: 15,
     animation: 'squat',
     muscles: LEGS,
+    targets: ['Бёдра', 'Ягодицы'],
     steps: [
       'Ноги на ширине плеч, носки чуть в стороны.',
       'Отводи таз назад, как будто садишься на стул.',
@@ -52,6 +55,7 @@ export const EXERCISES: Exercise[] = [
     amount: 10,
     animation: 'lunge',
     muscles: LEGS,
+    targets: ['Бёдра', 'Ягодицы'],
     steps: [
       'Встань прямо, руки на поясе.',
       'Сделай широкий шаг вперёд.',
@@ -69,6 +73,7 @@ export const EXERCISES: Exercise[] = [
     amount: 15,
     animation: 'bridge',
     muscles: ['Hips', 'LeftUpLeg', 'RightUpLeg'],
+    targets: ['Ягодицы'],
     steps: [
       'Ляг на спину, ноги согнуты, стопы на полу.',
       'Подними таз, сжимая ягодицы.',
@@ -86,6 +91,7 @@ export const EXERCISES: Exercise[] = [
     amount: 10,
     animation: 'pushup',
     muscles: ['Spine2', 'LeftShoulder', 'RightShoulder', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm'],
+    targets: ['Грудь', 'Трицепс'],
     steps: [
       'Упор лёжа, руки чуть шире плеч.',
       'Тело прямое, как доска.',
@@ -104,6 +110,7 @@ export const EXERCISES: Exercise[] = [
     amount: 12,
     animation: 'shoulderPress',
     muscles: ['LeftShoulder', 'RightShoulder', 'LeftArm', 'RightArm'],
+    targets: ['Плечи'],
     steps: [
       'Возьми гантели (дома подойдут бутылки с водой).',
       'Подними их к плечам, локти под кистями.',
@@ -121,6 +128,7 @@ export const EXERCISES: Exercise[] = [
     amount: 12,
     animation: 'curl',
     muscles: ['LeftArm', 'RightArm'],
+    targets: ['Бицепс'],
     steps: [
       'Гантели в руках, локти прижаты к телу.',
       'Согни руки, поднимая гантели к плечам.',
@@ -137,6 +145,7 @@ export const EXERCISES: Exercise[] = [
     amount: 12,
     animation: 'row',
     muscles: ['Spine1', 'Spine2', 'LeftShoulder', 'RightShoulder', 'LeftArm', 'RightArm'],
+    targets: ['Спина'],
     steps: [
       'Наклонись вперёд с прямой спиной, колени чуть согнуты.',
       'Гантели или штанга в опущенных руках.',
@@ -156,6 +165,7 @@ export const EXERCISES: Exercise[] = [
     timed: true,
     animation: 'plank',
     muscles: ['Spine', 'Spine1', 'Hips'],
+    targets: ['Пресс', 'Спина'],
     steps: [
       'Упор на предплечья и носки.',
       'Тело прямое от головы до пяток.',
@@ -172,6 +182,7 @@ export const EXERCISES: Exercise[] = [
     amount: 15,
     animation: 'crunch',
     muscles: ['Spine', 'Spine1'],
+    targets: ['Пресс'],
     steps: [
       'Ляг на спину, ноги согнуты.',
       'Руки у висков, не тяни голову.',
@@ -190,6 +201,7 @@ export const EXERCISES: Exercise[] = [
     timed: true,
     animation: 'jumpingJack',
     muscles: [...LEGS, 'LeftShoulder', 'RightShoulder'],
+    targets: ['Кардио'],
     steps: [
       'Встань прямо, руки вдоль тела.',
       'В прыжке разведи ноги и подними руки над головой.',
@@ -208,6 +220,7 @@ export const EXERCISES: Exercise[] = [
     timed: true,
     animation: 'march',
     muscles: LEGS,
+    targets: ['Кардио'],
     steps: ['Шагай на месте, высоко поднимая колени.', 'Помогай себе руками.'],
     mistakes: ['Сутулишься'],
   },
