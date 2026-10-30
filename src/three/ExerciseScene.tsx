@@ -1,9 +1,10 @@
 import { useFrame, useLoader, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
-import { Color, Mesh, MeshStandardMaterial, Object3D, Vector3 } from 'three';
+import { BufferAttribute, Color, Mesh, MeshStandardMaterial, Object3D, SkinnedMesh, Vector3 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
+import { colors } from '../ui';
 import { PosePlayer, type AnimationId } from './animations';
 
 export type View = 'front' | 'side';
@@ -19,25 +20,36 @@ type Props = {
   animation: AnimationId;
   view: View;
   playing: boolean;
+  /** Bones whose muscles light up. */
+  muscles: string[];
 };
 
-export function ExerciseScene({ source, animation, view, playing }: Props) {
+const BODY = new Color('#d9dde5');
+const JOINTS = new Color('#1b1f27');
+const WORKING = new Color(colors.accent);
+
+export function ExerciseScene({ source, animation, view, playing, muscles }: Props) {
   return (
     <>
-      <color attach="background" args={['#eef2f7']} />
-      <hemisphereLight args={['#ffffff', '#8a99b0', 1.6]} />
-      <directionalLight position={[3, 5, 4]} intensity={2.2} />
-      <directionalLight position={[-3, 2, -2]} intensity={0.6} />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-        <circleGeometry args={[2.6, 48]} />
-        <meshStandardMaterial color="#d9e1ec" />
+      <color attach="background" args={[colors.stage]} />
+      <hemisphereLight args={['#ffffff', '#445566', 1.1]} />
+      <directionalLight position={[2.5, 4, 3]} intensity={2.6} />
+      {/* Neon rim light from behind outlines the figure against the dark stage. */}
+      <directionalLight position={[-3, 2.5, -3]} intensity={3.2} color={colors.accent} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]}>
+        <circleGeometry args={[1.5, 64]} />
+        <meshBasicMaterial color={colors.accent} transparent opacity={0.12} />
       </mesh>
-      <Character source={source} animation={animation} view={view} playing={playing} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[4, 64]} />
+        <meshBasicMaterial color="#171b20" />
+      </mesh>
+      <Character source={source} animation={animation} view={view} playing={playing} muscles={muscles} />
     </>
   );
 }
 
-function Character({ source, animation, view, playing }: Props) {
+function Character({ source, animation, view, playing, muscles }: Props) {
   // The loader caches by source; every viewer gets its own copy of the skeleton.
   const gltf = useLoader(GLTFLoader, source as string);
   const model = useMemo(() => {
@@ -46,17 +58,18 @@ function Character({ source, animation, view, playing }: Props) {
       if ((o as Mesh).isMesh) {
         const mesh = o as Mesh;
         mesh.frustumCulled = false;
-        const old = mesh.material as MeshStandardMaterial;
-        const joints = old.name?.toLowerCase().includes('joint');
-        mesh.material = new MeshStandardMaterial({
-          color: new Color(joints ? '#2b3445' : '#e8835a'),
-          roughness: 0.55,
-          metalness: 0.05,
-        });
+        // Own geometry per viewer: the muscle colours are written into it.
+        mesh.geometry = mesh.geometry.clone();
+        const joints = (mesh.material as MeshStandardMaterial).name?.toLowerCase().includes('joint');
+        mesh.userData.joints = joints;
+        mesh.material = new MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.05 });
       }
     });
     return m;
   }, [gltf]);
+
+  useEffect(() => paintMuscles(model, muscles), [model, muscles]);
+
   const player = useMemo(() => new PosePlayer(model), [model]);
   const hips = useMemo(() => findHips(model), [model]);
 
@@ -89,4 +102,32 @@ function findHips(model: Object3D): Object3D {
     if (/^mixamorig:?Hips$/.test(o.name)) hips = o;
   });
   return hips;
+}
+
+/** Colours the skin by how strongly each vertex follows the working bones. */
+function paintMuscles(model: Object3D, muscles: string[]) {
+  const wanted = new Set(muscles);
+  const c = new Color();
+  model.traverse((o) => {
+    const mesh = o as SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const geo = mesh.geometry;
+    const count = geo.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    if (mesh.userData.joints) {
+      for (let v = 0; v < count; v++) colors.set([JOINTS.r, JOINTS.g, JOINTS.b], v * 3);
+    } else {
+      const hot = new Set<number>();
+      mesh.skeleton.bones.forEach((b, i) => wanted.has(b.name.replace(/^mixamorig:?/, '')) && hot.add(i));
+      const index = geo.attributes.skinIndex;
+      const weight = geo.attributes.skinWeight;
+      for (let v = 0; v < count; v++) {
+        let w = 0;
+        for (let k = 0; k < 4; k++) if (hot.has(index.getComponent(v, k))) w += weight.getComponent(v, k);
+        c.copy(BODY).lerp(WORKING, Math.min(1, w * 1.3));
+        colors.set([c.r, c.g, c.b], v * 3);
+      }
+    }
+    geo.setAttribute('color', new BufferAttribute(colors, 3));
+  });
 }

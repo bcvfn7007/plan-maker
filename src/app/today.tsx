@@ -6,7 +6,7 @@ import { getExercise } from '../data/exercises';
 import { useAppState } from '../logic/AppState';
 import { amountLabel, planItem, replacement } from '../logic/plan';
 import { storage, type Finished } from '../logic/storage';
-import { Button, Card, colors, text } from '../ui';
+import { Button, Card, colors, fonts, text } from '../ui';
 
 export default function Today() {
   const { profile, plan, setPlan, saveProfile } = useAppState();
@@ -43,8 +43,8 @@ export default function Today() {
       </View>
 
       {doneToday && (
-        <Card style={{ backgroundColor: '#e3f5ec' }}>
-          <Text style={[text.body, { color: colors.good, fontWeight: '700' }]}>Сегодня уже сделано. Отлично!</Text>
+        <Card style={{ backgroundColor: colors.accentSoft, borderColor: colors.accentSoft }}>
+          <Text style={[text.body, { color: colors.good }]}>Сегодня уже сделано. Отлично!</Text>
         </Card>
       )}
 
@@ -58,7 +58,7 @@ export default function Today() {
               <Pressable style={{ flex: 1 }} onPress={() => router.push(`/exercise/${ex.id}`)}>
                 <Text style={text.body}>
                   {i === 0 ? 'Разминка: ' : ''}
-                  <Text style={{ fontWeight: '700' }}>{ex.name}</Text>
+                  <Text style={{ fontFamily: fonts.bodyBold }}>{ex.name}</Text>
                 </Text>
                 <Text style={text.muted}>{amountLabel(item)}</Text>
               </Pressable>
@@ -84,6 +84,6 @@ export default function Today() {
 const styles = StyleSheet.create({
   page: { padding: 20, gap: 18, maxWidth: 560, width: '100%', alignSelf: 'center' },
   item: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  replace: { color: colors.accent, fontWeight: '600', fontSize: 14 },
+  replace: { color: colors.accent, fontFamily: fonts.bodyBold, fontSize: 14 },
   links: { flexDirection: 'row', gap: 10 },
 });
