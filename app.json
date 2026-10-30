@@ -1,13 +1,14 @@
 {
   "expo": {
-    "name": "plan-maker",
+    "name": "Plan Maker",
     "slug": "plan-maker",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.planmaker.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -16,10 +17,17 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.planmaker.app"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "scheme": "planmaker",
+    "plugins": [
+      "expo-router"
+    ]
   }
 }
