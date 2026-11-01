@@ -3,13 +3,17 @@ import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-n
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ExerciseTips, ExerciseViewer } from '../../components/ExercisePanel';
+import { ProgressCard } from '../../components/ProgressCard';
 import { getExercise } from '../../data/exercises';
+import { useAppState } from '../../logic/AppState';
 import { colors, Eyebrow, FOCUS, IconButton, Tag, text } from '../../ui';
 
 export default function ExerciseScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { height } = useWindowDimensions();
   const exercise = getExercise(id);
+  const { log } = useAppState();
+  const sessions = exercise ? log[exercise.id] : undefined;
   const back = () => (router.canGoBack() ? router.back() : router.replace('/today'));
 
   if (!exercise) {
@@ -39,6 +43,7 @@ export default function ExerciseScreen() {
             ))}
           </View>
         </View>
+        {sessions && sessions.length > 0 && <ProgressCard exercise={exercise} sessions={sessions} compact />}
         <ExerciseTips exercise={exercise} />
       </ScrollView>
     </SafeAreaView>
