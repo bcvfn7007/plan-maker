@@ -4,9 +4,11 @@ import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { HoursGrid } from '../components/HoursGrid';
 import { getExercise } from '../data/exercises';
 import { useAppState } from '../logic/AppState';
 import { amountLabel, dateKey, planItem, replacement } from '../logic/plan';
+import { dailyMinutes, GOAL_MINUTES, hoursLabel, minutesOn, suggestedPart, totalMinutes, type Skill } from '../logic/skill';
 import { storage, type Finished } from '../logic/storage';
 import { Button, colors, Eyebrow, FOCUS, fonts, IconButton, IconTile, Ionicons, MaterialCommunityIcons, tap, text } from '../ui';
 
@@ -15,10 +17,12 @@ const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 export default function Today() {
   const { profile, plan, setPlan, saveProfile } = useAppState();
   const [history, setHistory] = useState<Finished[]>([]);
+  const [skill, setSkill] = useState<Skill | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       storage.getHistory().then(setHistory);
+      storage.getSkill().then(setSkill);
     }, []),
   );
 
@@ -66,6 +70,8 @@ export default function Today() {
           </View>
           <Button title={doneToday ? 'Пройти ещё раз' : 'Начать тренировку'} icon="play" onPress={() => router.push('/workout')} />
         </LinearGradient>
+
+        <SkillCard skill={skill} />
 
         <View style={styles.sectionHead}>
           <Text style={text.h2}>Упражнения</Text>
@@ -117,6 +123,38 @@ export default function Today() {
         </Pressable>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/** The "any skill in 20 hours" entry: progress if a skill is chosen, an invitation if not. */
+function SkillCard({ skill }: { skill: Skill | null }) {
+  const total = skill ? totalMinutes(skill) : 0;
+  const next = skill ? suggestedPart(skill) : undefined;
+  const daily = skill ? dailyMinutes(skill, dateKey()) : undefined;
+  const todayMin = skill ? minutesOn(skill, dateKey()) : 0;
+  return (
+    <Pressable onPress={() => router.push('/skill')} style={({ pressed }) => [styles.skillCard, pressed && { opacity: 0.85 }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <IconTile icon={skill?.icon ?? 'target'} active={!!skill} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Eyebrow style={{ fontSize: 11 }}>Навык за 20 часов</Eyebrow>
+          <Text style={text.h3} numberOfLines={1}>
+            {skill ? skill.name : 'Выучи что-то новое'}
+          </Text>
+          <Text style={[text.muted, { fontSize: 13 }]} numberOfLines={1}>
+            {!skill
+              ? 'Гитара, английский, рисование или свой навык'
+              : total >= GOAL_MINUTES
+                ? 'Все 20 часов пройдены'
+                : daily !== undefined
+                  ? `Сегодня ${todayMin} из ${daily} мин · всего ${hoursLabel(total)}`
+                  : `${hoursLabel(total)} из 20 ч${next ? ` · дальше: ${next.name}` : ''}`}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.faint} />
+      </View>
+      {skill && <HoursGrid minutes={total} size="small" />}
+    </Pressable>
   );
 }
 
@@ -194,5 +232,6 @@ const styles = StyleSheet.create({
   list: { backgroundColor: colors.card, borderRadius: 22, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
   swap: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentSoft },
+  skillCard: { gap: 14, padding: 14, borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line },
   libraryLink: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line },
 });

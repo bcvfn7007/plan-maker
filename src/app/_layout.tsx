@@ -45,6 +45,8 @@ export default function RootLayout() {
           <Stack.Screen name="workout" options={{ headerShown: false, gestureEnabled: false, animation: 'slide_from_bottom' }} />
           <Stack.Screen name="library" options={{ title: 'Упражнения' }} />
           <Stack.Screen name="exercise/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="skill/index" options={{ headerShown: false }} />
+          <Stack.Screen name="skill/session" options={{ headerShown: false, gestureEnabled: false, animation: 'slide_from_bottom' }} />
         </Stack>
       </AppStateProvider>
     </SafeAreaProvider>
