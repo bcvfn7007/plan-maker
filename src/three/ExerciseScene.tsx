@@ -223,10 +223,16 @@ const TRIM = new Color(colors.accent);
  */
 function bodyMaterial(original: MeshStandardMaterial, own: boolean, pulse: { value: number }, outfit: Outfit | null) {
   // Textured characters (e.g. from Mixamo) keep their own skin and clothes textures.
-  const material = original.map
+  // Characters that bring finished materials (textures or plain colours, e.g. Mixamo or the pro coach) keep them;
+  // only vertex-coloured ones and the bare mannequin get the generated material.
+  const finished = !own && (!!original.map || original.name !== '' && !/joint/i.test(original.name));
+  const material = finished
     ? (original.clone() as MeshStandardMaterial)
     : new MeshStandardMaterial({ vertexColors: true, roughness: own ? 0.55 : 0.35, metalness: 0, envMapIntensity: 0.8 });
-  if (original.map) material.vertexColors = false;
+  if (finished) {
+    material.vertexColors = false;
+    material.envMapIntensity = 0.8;
+  }
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     shader.uniforms.heatColor = { value: ACCENT };
     shader.uniforms.heatPulse = pulse;
