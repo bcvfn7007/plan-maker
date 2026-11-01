@@ -63,6 +63,9 @@ const LYING_LEGS_BENT = {
 
 const ARMS_ALONG_BODY = { LeftArm: [0.2, -0.25, 1], RightArm: [-0.2, -0.25, 1] } satisfies Pose['bones'];
 
+// Hands flat on the floor, fingers forward (push-ups).
+const PALMS_FLAT = { LeftHand: [0.2, -0.12, 1], RightHand: [-0.2, -0.12, 1] } satisfies Pose['bones'];
+
 const TOES_DOWN = { LeftFoot: [0, -1, 0.25], RightFoot: [0, -1, 0.25] } satisfies Pose['bones'];
 
 const BENT_OVER = {
@@ -142,12 +145,13 @@ const ANIMATIONS = {
     poses: [
       {
         tilt: 70,
-        bones: { ...TOES_DOWN, LeftArm: [0.15, -1, 0], RightArm: [-0.15, -1, 0], Neck: [0, 0.3, 1] },
+        bones: { ...TOES_DOWN, ...PALMS_FLAT, LeftArm: [0.15, -1, 0], RightArm: [-0.15, -1, 0], Neck: [0, 0.3, 1] },
       },
       {
         tilt: 80,
         bones: {
           ...TOES_DOWN,
+          ...PALMS_FLAT,
           LeftArm: [0.65, -0.25, -0.5],
           RightArm: [-0.65, -0.25, -0.5],
           LeftForeArm: [-0.1, -1, 0.15],
