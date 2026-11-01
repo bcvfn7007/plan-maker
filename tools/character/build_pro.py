@@ -80,6 +80,7 @@ SHAPE = {
         'nose/nose-hump-decr': 0.4, 'nose/nose-point-width-decr': 0.35, 'nose/nose-scale-horiz-decr': 0.15, 'nose/nose-greek-incr': 0.2,
         'eyebrows/eyebrows-trans-down': 0.25, 'eyebrows/eyebrows-angle-down': 0.2, 'forehead/forehead-temple-decr': 0.2,
         'mouth/mouth-scale-horiz-incr': 0.15, 'mouth/mouth-lowerlip-volume-incr': 0.15, 'neck/measure-neck-circ-incr': 0.45,
+        'eyes/l-eye-height2-incr': 0.4, 'eyes/r-eye-height2-incr': 0.4,
         'torso/torso-vshape-incr': 0.6, 'torso/torso-muscle-pectoral-incr': 0.35, 'torso/torso-muscle-dorsi-incr': 0.4,
         'torso/measure-shoulder-dist-incr': 0.25, 'torso/measure-waist-circ-decr': 0.25,
     },
@@ -88,7 +89,7 @@ SHAPE = {
         'cheek/l-cheek-bones-incr': 0.45, 'cheek/r-cheek-bones-incr': 0.45, 'cheek/l-cheek-volume-decr': 0.25, 'cheek/r-cheek-volume-decr': 0.25,
         'nose/nose-hump-decr': 0.4, 'nose/nose-point-width-decr': 0.4, 'nose/nose-scale-horiz-decr': 0.25, 'nose/nose-point-up': 0.2,
         'mouth/mouth-upperlip-volume-incr': 0.3, 'mouth/mouth-lowerlip-volume-incr': 0.3, 'mouth/mouth-cupidsbow-incr': 0.3,
-        'eyes/l-eye-scale-incr': 0.15, 'eyes/r-eye-scale-incr': 0.15, 'eyebrows/eyebrows-angle-up': 0.2,
+        'eyes/l-eye-scale-incr': 0.15, 'eyes/r-eye-scale-incr': 0.15, 'eyes/l-eye-height2-incr': 0.35, 'eyes/r-eye-height2-incr': 0.35, 'eyebrows/eyebrows-angle-up': 0.2,
         'torso/torso-vshape-incr': 0.2, 'torso/measure-waist-circ-decr': 0.35, 'neck/neck-scale-vert-incr': 0.2,
     },
 }[SEX]
@@ -170,7 +171,49 @@ def make_object(name, face_list, weights=None, fixed_bone=None):
 
 
 body = make_object('Body', body_faces)
-eyes = make_object('Eyes', [f for f, g in zip(faces, fgroups) if g in ('helper-l-eye', 'helper-r-eye')], fixed_bone='mixamorig:Head')
+
+
+def make_eyes():
+    """Smooth eyeballs in place of the low-poly helper eyes, UV-mapped around the gaze for a crisp iris."""
+    bm = bmesh.new()
+    for grp in ('helper-l-eye', 'helper-r-eye'):
+        pts = V[group_idx(grp)]
+        c = pts.mean(0)
+        r = float(np.linalg.norm(pts - c, axis=1).mean())
+        part = bmesh.new()
+        bmesh.ops.create_uvsphere(part, u_segments=40, v_segments=24, radius=r)
+        for v in part.verts:
+            v.co += Vector(c.tolist())
+        tmp = bpy.data.meshes.new('tmp_eye')
+        part.to_mesh(tmp)
+        part.free()
+        bm.from_mesh(tmp)
+        bpy.data.meshes.remove(tmp)
+        bm.verts.ensure_lookup_table()
+        eye_centres.append((Vector(c.tolist()), r))
+    uvl = bm.loops.layers.uv.new('UVMap')
+    for f in bm.faces:
+        for lp in f.loops:
+            c, r = min(eye_centres, key=lambda e: (lp.vert.co - e[0]).length)
+            d = (lp.vert.co - c).normalized()
+            th = math.acos(max(-1.0, min(1.0, -d.y)))  # 0 = looking straight ahead
+            ph = math.atan2(d.z, d.x)
+            lp[uvl].uv = (0.5 + 0.5 * th / math.pi * math.cos(ph), 0.5 + 0.5 * th / math.pi * math.sin(ph))
+    for f in bm.faces:
+        f.smooth = True
+    me = bpy.data.meshes.new('Eyes')
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new('Eyes', me)
+    bpy.context.scene.collection.objects.link(ob)
+    for bn in BONE_NAMES:
+        ob.vertex_groups.new(name=bn)
+    ob.vertex_groups['mixamorig:Head'].add(list(range(len(me.vertices))), 1.0, 'REPLACE')
+    return ob
+
+
+eye_centres = []
+eyes = make_eyes()
 lashes = make_object('Lashes', [f for f, g in zip(faces, fgroups) if g.startswith('helper-') and 'eyelashes' in g], fixed_bone='mixamorig:Head')
 hair_src = [f for f, g in zip(faces, fgroups) if g == 'helper-hair']
 
@@ -418,7 +461,7 @@ def hairline_z(x, y):
     """Height of the hairline above (x, y): low at the nape, above the ears at the sides, high on the forehead."""
     d = y - eye_c.y  # > 0 towards the back of the head
     zf = eye_c.z + (0.088 if MALE else 0.1) + (0.008 if MALE else 0) * np.exp(-((np.abs(x) - 0.045) / 0.012) ** 2)
-    zs = eye_c.z + (0.04 if MALE else 0.062)
+    zs = eye_c.z + (0.04 if MALE else 0.048)
     zb = eye_c.z - (0.075 if MALE else 0.1)
     t1 = np.clip((d + 0.05) / 0.05, 0, 1)
     t2 = np.clip((d - 0.04) / 0.06, 0, 1)
@@ -439,10 +482,10 @@ def make_hair():
             if bn == 'mixamorig:Head':
                 wm['head'][i] += w
     head_share = wm['head'] / (wm['all'] + 1e-9)
-    above = V[:, 2] > hairline_z(V[:, 0], V[:, 1]) - 0.004
+    above = V[:, 2] > hairline_z(V[:, 0], V[:, 1]) + 0.009  # mesh starts inside the painted hair: no z-fighting at the edge
     ears = mask('ears')
     def ear(t):
-        return ears[int((1 - UV[t][1]) * (TEX - 1)), int(UV[t][0] * (TEX - 1))] > 0.05
+        return ears[int((1 - UV[t][1]) * (TEX - 1)), int(UV[t][0] * (TEX - 1))] > 0.5
     sel = [f for f in body_faces if all(above[c[0]] and head_share[c[0]] > 0.5 and not ear(c[1]) for c in f)]
     ob = make_object('Hair', sel, fixed_bone='mixamorig:Head')
     me = ob.data
@@ -462,10 +505,12 @@ def make_hair():
         else:
             full = 0.004 + 0.006 * h  # pulled back into the ponytail
         clump = math.sin(c.x * 260 + math.sin(c.y * 40) * 2) * 0.5 + math.sin(c.x * 610 + c.y * 90) * 0.25
-        amount = min(full * (1 + 0.25 * clump), max(0.0, rise) * (0.3 if MALE else 0.15))
+        amount = min(full * (1 + 0.25 * clump), max(-0.003, (rise - 0.022) * (0.3 if MALE else 0.18)))  # grows from zero along the hairline, not along face edges
         front = float(np.clip((eye_c.y - c.y) / 0.06, 0, 1))  # forehead side of the head
         k = 0.6 * front if MALE else 0.0
         d = (v.normal * (1 - k) + up * k).normalized()
+        if v.is_boundary:
+            amount = -0.003  # the edge hides under the painted scalp, so the cap rises out of it
         v.co += d * amount
     bm.to_mesh(me)
     bm.free()
@@ -479,32 +524,72 @@ def make_hair():
 hair = make_hair()
 parts = [hair]
 
-if not MALE:
-    # Ponytail: a tapered, slightly curved tube from the back of the head.
-    base = Vector((0, eye_c.y + 0.1, eye_c.z + 0.035))
-    path = [base + Vector((0, 0.06 * t + 0.05 * t * t, -0.2 * t)) for t in np.linspace(0, 1, 14)]
+def tube_object(name, rings_list, cap_tips=True):
+    """Mesh object from lists of rings (each ring a list of points), weighted fully to the head."""
     bm = bmesh.new()
-    rings = []
-    for i, c in enumerate(path):
-        t = i / (len(path) - 1)
-        r = 0.008 + 0.03 * math.sin(math.pi * min(1.0, 0.25 + t * 0.85))
-        ring = [bm.verts.new(c + Vector((math.cos(a) * r * 1.1, math.sin(a) * r * 0.9, 0))) for a in np.linspace(0, 2 * math.pi, 16, endpoint=False)]
-        rings.append(ring)
-    for a, b in zip(rings, rings[1:]):
-        for j in range(16):
-            bm.faces.new((a[j], a[(j + 1) % 16], b[(j + 1) % 16], b[j]))
-    bm.faces.new(rings[-1][::-1])
-    pm = bpy.data.meshes.new('Ponytail')
-    bm.to_mesh(pm)
+    for rings in rings_list:
+        vr = [[bm.verts.new(p) for p in ring] for ring in rings]
+        n = len(vr[0])
+        for ra, rb in zip(vr, vr[1:]):
+            for j in range(n):
+                bm.faces.new((ra[j], ra[(j + 1) % n], rb[(j + 1) % n], rb[j]))
+        if cap_tips:
+            bm.faces.new(vr[0][::-1])
+            bm.faces.new(vr[-1])
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
     bm.free()
-    pt = bpy.data.objects.new('Ponytail', pm)
-    bpy.context.scene.collection.objects.link(pt)
+    ob = bpy.data.objects.new(name, me)
+    bpy.context.scene.collection.objects.link(ob)
     for g in body.vertex_groups:
-        pt.vertex_groups.new(name=g.name)
-    pt.vertex_groups['mixamorig:Head'].add(list(range(len(pm.vertices))), 1.0, 'REPLACE')
-    for p_ in pm.polygons:
+        ob.vertex_groups.new(name=g.name)
+    ob.vertex_groups['mixamorig:Head'].add(list(range(len(me.vertices))), 1.0, 'REPLACE')
+    for p_ in me.polygons:
         p_.use_smooth = True
+    return ob
+
+
+if not MALE:
+    # Ponytail: a bundle of twisting, tapering strands gathered by a hair tie at the back of the head.
+    bz = eye_c.z - 0.005
+    VB = V[list(body['src_index'])]
+    back = VB[(np.abs(VB[:, 0]) < 0.012) & (np.abs(VB[:, 2] - bz) < 0.012)]
+    base = Vector((0, float(back[:, 1].max()) + 0.006, bz))
+
+    def axis(t):
+        return base + Vector((0, 0.03 * t - 0.012 * t * t, -0.22 * t))
+
+    def bundle_r(t):
+        return 0.013 + 0.022 * math.sin(math.pi * min(1.0, t / 0.6) * 0.5) * (1 - t) ** 0.6 + 0.004 * (1 - t)
+
+    rng_p = np.random.default_rng(7)
+    strands = []
+    for k in range(11):
+        a0 = 2 * math.pi * k / 11 + rng_p.uniform(-0.25, 0.25)
+        length = rng_p.uniform(0.82, 1.0)
+        spread = rng_p.uniform(0.45, 0.7)
+        rings = []
+        for i, t in enumerate(np.linspace(0, length, 22)):
+            ang = a0 + 0.9 * t
+            br = bundle_r(t)
+            off = Vector((math.cos(ang), math.sin(ang) * 0.85, 0)) * br * spread
+            rs = br * 0.55 * (1 - (t / length) ** 3) + 0.0008
+            c = axis(t) + off
+            rings.append([c + Vector((math.cos(q) * rs, math.sin(q) * rs * 0.8, 0)) for q in np.linspace(0, 2 * math.pi, 8, endpoint=False)])
+        strands.append(rings)
+    pt = tube_object('Ponytail', strands)
+    sub = pt.modifiers.new('Sub', 'SUBSURF')
+    sub.levels = 1
+    bpy.context.view_layer.objects.active = pt
+    bpy.ops.object.modifier_apply(modifier='Sub')
     parts.append(pt)
+    # Hair tie: a small ring around the gathered hair.
+    tc, R, rr = axis(0.035), bundle_r(0.035) * 0.75 + 0.004, 0.0045
+    tie_rings = [[tc + Vector((math.cos(u) * (R + rr * math.cos(q)), math.sin(u) * 0.85 * (R + rr * math.cos(q)), rr * math.sin(q)))
+                  for q in np.linspace(0, 2 * math.pi, 8, endpoint=False)] for u in np.linspace(0, 2 * math.pi, 25)[:-1]]
+    tie_rings.append(tie_rings[0])
+    tie = tube_object('HairTie', [tie_rings], cap_tips=False)
+    parts.append(tie)
 
 # ------------------------------------------------------------------ smoother body
 bpy.context.view_layer.objects.active = body
@@ -565,7 +650,7 @@ def sm(x, a, b):
     return t * t * (3 - 2 * t)
 
 
-P, O = raster([body, eyes, lashes])
+P, O = raster([body])
 x, y, z = P[..., 0], P[..., 1], P[..., 2]
 img = np.zeros((TEX, TEX, 3), np.float32)
 
@@ -585,8 +670,12 @@ for sx in (1, -1):
     ck = Vector((sx * 0.042, eye_c.y - 0.05, eye_c.z - 0.04))
     redness = np.maximum(redness, 0.22 * (1 - sm(np.linalg.norm(P - np.array(ck), axis=-1), 0, 0.035)))
 skin = skin * (1 - redness[..., None] * 0.35) + RED * redness[..., None] * 0.35
+face_front_early = sm(-(y - eye_c.y), -0.02, 0.03)
 lips = mask('lips')
 skin = skin * (1 - lips[..., None] * 0.5) + np.array([0.68, 0.44, 0.40] if MALE else [0.72, 0.38, 0.40])[None, None] * lips[..., None] * 0.5
+for e in (eyeL, eyeR):
+    socket = (1 - sm(np.linalg.norm((P - np.array(e)) * np.array([0.8, 1, 1.25]), axis=-1), 0.012, 0.032)) * face_front_early
+    skin = skin * (1 - (0.13 * socket)[..., None] * np.array([0.8, 1.0, 0.95]))
 lids = mask('eyelids')
 skin *= (1 - 0.18 * lids[..., None] * np.array([0.6, 1, 1]))
 nails = np.maximum(mask('fingernails'), mask('toenails'))
@@ -631,7 +720,7 @@ img = np.where((O == 2)[..., None], np.array([0.22, 0.16, 0.13]), img)
 # Hair: dark brown with fine strands running front to back.
 HAIR = np.array([0.17, 0.12, 0.09]) if MALE else np.array([0.30, 0.19, 0.12])
 strands = 0.85 + 0.15 * rng.random(z.shape).astype(np.float32) + 0.1 * noise3(P, 60, 2)
-on_scalp = sm(z - hairline_z(x, y) + 0.003 * noise3(P, 300, 2), -0.004, 0.005) * (z > eye_c.z - 0.12) * (np.abs(y - eye_c.y) < 0.2) * (1 - sm(mask('ears'), 0.05, 0.3))
+on_scalp = sm(z - hairline_z(x, y) + 0.0012 * noise3(P, 300, 2), -0.005, 0.006) * (z > eye_c.z - 0.12) * (np.abs(y - eye_c.y) < 0.2) * (1 - sm(mask('ears'), 0.4, 0.8) * (z < eye_c.z + 0.01))
 img = np.where((O == 0)[..., None], img * (1 - on_scalp[..., None]) + (HAIR * strands[..., None]) * on_scalp[..., None], img)
 
 # Fill gaps around UV islands (stops dark seams when mipmapped).
@@ -665,7 +754,38 @@ def tex_material(name, rough, spec=0.5):
 
 
 body.data.materials.append(tex_material('Skin', 0.5))
-eyes.data.materials.append(tex_material('Eyes', 0.08))
+# Eye texture in gaze-polar coordinates: centre = front of the eye, up = up.
+EN = 512
+gv, gu = np.meshgrid((np.arange(EN) + 0.5) / EN, (np.arange(EN) + 0.5) / EN, indexing='ij')  # rows = v from the bottom
+du, dv = gu - 0.5, gv - 0.5
+th = np.sqrt(du ** 2 + dv ** 2) * 2 * math.pi  # angle from the gaze
+ph = np.arctan2(dv, du)
+upness = np.sin(th) * np.sin(ph)  # height on the eyeball, -1..1
+IRIS = np.array([0.27, 0.18, 0.11]) if MALE else np.array([0.30, 0.36, 0.30])
+iris_r, pupil_r = 0.49, 0.17
+t = np.clip((th - pupil_r) / (iris_r - pupil_r), 0, 1)
+fib = 0.78 + 0.22 * np.sin(ph * 47) * np.sin(ph * 17 + 1.3) + 0.08 * np.sin(ph * 113)
+iris = IRIS * fib[..., None] * (1.25 - 0.65 * t ** 1.5)[..., None]
+iris = iris * (1 + 0.5 * np.exp(-((t - 0.18) / 0.08) ** 2))[..., None]  # bright collarette round the pupil
+sclera = np.array([0.90, 0.87, 0.84]) * np.ones_like(iris)
+sclera = sclera * (1 - 0.12 * sm(np.abs(np.cos(ph)) * np.sin(th), 0.5, 0.95))[..., None] + np.array([0.12, 0.02, 0.02]) * sm(np.abs(np.cos(ph)) * np.sin(th), 0.6, 0.95)[..., None]
+col = np.where((th < iris_r)[..., None], iris, sclera)
+ring = sm(th, iris_r - 0.09, iris_r) * (1 - sm(th, iris_r, iris_r + 0.03))
+col = col * (1 - 0.75 * ring)[..., None]  # dark limbal ring
+col = np.where((th < pupil_r)[..., None], np.array([0.015, 0.012, 0.012]), col)
+col = col * (1 - 0.45 * sm(upness, 0.05, 0.55))[..., None]  # shadow of the upper lid
+eimg = bpy.data.images.new('EyeTex', EN, EN, alpha=False)
+eimg.pixels = np.concatenate([np.clip(col, 0, 1), np.ones((EN, EN, 1))], -1).astype(np.float32).ravel()
+eimg.file_format = 'JPEG'
+eimg.filepath_raw = os.path.join(os.path.dirname(os.path.abspath(OUT)), f'eye-{SEX}.jpg')
+eimg.save()
+em = bpy.data.materials.new('Eyes')
+em.use_nodes = True
+et = em.node_tree.nodes.new('ShaderNodeTexImage')
+et.image = eimg
+em.node_tree.links.new(et.outputs['Color'], em.node_tree.nodes['Principled BSDF'].inputs['Base Color'])
+em.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.06
+eyes.data.materials.append(em)
 # The MakeHuman lash cards need alpha; solid they read as heavy eyeliner, so they are left out.
 bpy.data.objects.remove(lashes)
 hair.data.materials.append(tex_material('Hair', 0.82))
@@ -673,8 +793,13 @@ if not MALE:
     pm = bpy.data.materials.new('Ponytail')
     pm.use_nodes = True
     pm.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (*lin('#4a3020'), 1)
-    pm.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.5
-    parts[-1].data.materials.append(pm)
+    pm.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.7
+    pt.data.materials.append(pm)
+    tm = bpy.data.materials.new('HairTie')
+    tm.use_nodes = True
+    tm.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (*lin('#c6ff3d'), 1)
+    tm.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.5
+    tie.data.materials.append(tm)
 
 # ------------------------------------------------------------------ assemble + export
 for ob in [body, eyes, tee, shorts, *shoes, *parts]:
