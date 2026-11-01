@@ -1,12 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { DayPlan, Profile } from './plan';
+import type { Skill } from './skill';
 
 // Everything lives on the phone for now. Cloud sync (accounts) comes with Supabase later.
 const KEYS = {
   profile: 'pm.profile',
   plan: 'pm.plan',
   history: 'pm.history',
+  skill: 'pm.skill',
 };
 
 export type Finished = { date: string; title: string; exercises: number; minutes: number };
@@ -30,5 +32,8 @@ export const storage = {
     const history = (await read<Finished[]>(KEYS.history)) ?? [];
     await write(KEYS.history, [f, ...history].slice(0, 200));
   },
+  getSkill: () => read<Skill>(KEYS.skill),
+  saveSkill: (s: Skill) => write(KEYS.skill, s),
+  removeSkill: () => AsyncStorage.removeItem(KEYS.skill),
   reset: () => AsyncStorage.multiRemove(Object.values(KEYS)),
 };
