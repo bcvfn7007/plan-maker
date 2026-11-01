@@ -12,6 +12,7 @@ import {
   Object3D,
   PCFShadowMap,
   PMREMGenerator,
+  Quaternion,
   ShaderMaterial,
   SkinnedMesh,
   Vector3,
@@ -199,26 +200,127 @@ function Studio() {
   );
 }
 
-/** Adds a pulsing glow on the working muscles to a standard material. */
-function withMuscleGlow(material: MeshStandardMaterial, pulse: { value: number }) {
+/** Body measurements (mesh space, metres) that place the clothes edges. */
+type Outfit = {
+  /** Height of the neck, waist, shorts hem; x of the shoulder joint; z just in front of the face. */
+  neck: number;
+  waist: number;
+  hem: number;
+  shoulder: number;
+  armpit: number;
+  front: number;
+};
+
+/** Clothes colours: sRGB like the rest of the UI. */
+const TOP = new Color('#2b313d');
+const SHORTS = new Color('#16191f');
+const TRIM = new Color(colors.accent);
+
+/**
+ * The coach's material: clothes are drawn per pixel from the rest pose (crisp, smooth edges
+ * instead of the jagged per-vertex paint), skin is a bit glossier than fabric,
+ * and the working muscles glow and pulse.
+ */
+function bodyMaterial(original: MeshStandardMaterial, own: boolean, pulse: { value: number }, outfit: Outfit | null) {
+  // Textured characters (e.g. from Mixamo) keep their own skin and clothes textures.
+  const material = original.map
+    ? (original.clone() as MeshStandardMaterial)
+    : new MeshStandardMaterial({ vertexColors: true, roughness: own ? 0.55 : 0.35, metalness: 0, envMapIntensity: 0.8 });
+  if (original.map) material.vertexColors = false;
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     shader.uniforms.heatColor = { value: ACCENT };
     shader.uniforms.heatPulse = pulse;
+    const o = outfit ?? { neck: 99, waist: 99, hem: 99, shoulder: 0, armpit: 99, front: 0 };
+    shader.uniforms.outfit = { value: [o.neck, o.waist, o.hem, o.shoulder, o.armpit, o.front] };
+    shader.uniforms.topColor = { value: TOP };
+    shader.uniforms.shortsColor = { value: SHORTS };
+    shader.uniforms.trimColor = { value: TRIM };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float heat;\nvarying float vHeat;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHeat = heat;');
+      .replace('#include <common>', '#include <common>\nattribute float heat;\nvarying float vHeat;\nvarying vec3 vRest;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHeat = heat;\nvRest = position;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 heatColor;\nuniform float heatPulse;\nvarying float vHeat;')
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform vec3 heatColor; uniform float heatPulse; varying float vHeat; varying vec3 vRest;
+        uniform float outfit[6]; uniform vec3 topColor; uniform vec3 shortsColor; uniform vec3 trimColor;
+        float clothMask; float trimMask;
+        // 1 above the line, 0 below, anti-aliased over one pixel.
+        float edge(float v, float line) { float w = max(fwidth(v), 0.0006); return smoothstep(line - w, line + w, v); }`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        {
+          float neck = outfit[0], waist = outfit[1], hem = outfit[2], shoulder = outfit[3], armpit = outfit[4], frontZ = outfit[5];
+          float ax = abs(vRest.x), y = vRest.y;
+          // Tank top: a scoop neck at the front, armholes that narrow towards the shoulder.
+          float front = smoothstep(frontZ - 0.02, frontZ + 0.02, vRest.z);
+          float neckLine = neck - 0.04 - 0.07 * front * (1.0 - smoothstep(0.0, 0.1, ax));
+          // Under the armpit the top follows the ribs; above it the armhole cuts in and narrows to a strap.
+          float strap = shoulder - 0.045 * smoothstep(armpit - 0.07, armpit, y) - clamp(y - armpit, 0.0, 1.0) * 0.6;
+          float top = edge(y, waist) * (1.0 - edge(y, neckLine)) * (1.0 - edge(ax, y > waist ? strap : 9.0));
+          // Shorts: from the waist to mid-thigh, legs wider apart than the hands are from the hips.
+          float shorts = (1.0 - edge(y, waist)) * edge(y, hem) * (1.0 - edge(ax, shoulder + 0.03));
+          clothMask = max(top, shorts);
+          vec3 cloth = mix(shortsColor, topColor, top);
+          // Thin neon piping on the shorts hem and the waistband.
+          trimMask = shorts * ((1.0 - edge(y, hem + 0.008)) + edge(y, waist - 0.008));
+          cloth = mix(cloth, trimColor * 0.55, trimMask);
+          diffuseColor.rgb = mix(diffuseColor.rgb, cloth, clothMask);
+        }`,
+      )
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.92, clothMask);')
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
+        totalEmissiveRadiance += trimColor * trimMask * 0.25;
         // Glow stronger where the surface turns away from the camera: reads as light under the skin.
         float rim = 1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition)));
-        totalEmissiveRadiance += heatColor * vHeat * (0.06 + 0.42 * rim * rim * rim) * heatPulse;`,
+        totalEmissiveRadiance += heatColor * vHeat * (0.05 + 0.5 * rim * rim) * heatPulse * (1.0 - 0.45 * clothMask);`,
       );
   };
-  material.customProgramCacheKey = () => 'muscle-glow';
+  material.customProgramCacheKey = () => 'coach-body';
   return material;
+}
+
+/**
+ * Reads where the clothes go from the skeleton, and paints the old per-vertex clothes back to skin
+ * so the shader can draw them cleanly. Null for characters without a Mixamo skeleton.
+ */
+function prepareOutfit(mesh: SkinnedMesh, base: Float32Array | undefined): Outfit | null {
+  if (!mesh.isSkinnedMesh || !base) return null;
+  const at = (name: string) => {
+    const bone = mesh.skeleton.bones.find((b) => b.name.replace(/^mixamorig:?/, '') === name);
+    return bone ? bone.getWorldPosition(new Vector3()).applyMatrix4(mesh.bindMatrixInverse) : null;
+  };
+  const neck = at('Neck'), head = at('Head'), arm = at('LeftArm'), upLeg = at('LeftUpLeg'), leg = at('LeftLeg');
+  if (!neck || !head || !arm || !upLeg || !leg) return null;
+  const outfit: Outfit = {
+    neck: neck.y,
+    waist: upLeg.y + 0.11,
+    hem: leg.y + (upLeg.y - leg.y) * 0.42,
+    shoulder: Math.abs(arm.x),
+    armpit: arm.y - 0.08,
+    front: head.z + 0.03,
+  };
+  // Skin colour: the most common vertex colour (the body is mostly skin).
+  const counts = new Map<string, number>();
+  for (let v = 0; v < base.length / 3; v += 7) {
+    const key = `${base[v * 3].toFixed(3)},${base[v * 3 + 1].toFixed(3)},${base[v * 3 + 2].toFixed(3)}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const skin = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0].split(',').map(Number);
+  const pos = mesh.geometry.attributes.position;
+  for (let v = 0; v < pos.count; v++) {
+    const y = pos.getY(v);
+    if (y < outfit.hem - 0.05 || y > outfit.neck + 0.02) continue;
+    // Hair stays (long hair can reach the neck); everything else in the clothes zone becomes skin.
+    const r = base[v * 3], g = base[v * 3 + 1], b = base[v * 3 + 2];
+    const hairish = r < 0.05 && r > g && g > b;
+    if (!hairish) base.set(skin, v * 3);
+  }
+  return outfit;
 }
 
 function Character({ source, animation, view, playing, muscles, yaw }: Props) {
@@ -227,6 +329,15 @@ function Character({ source, animation, view, playing, muscles, yaw }: Props) {
   const pulse = useMemo(() => ({ value: 1 }), []);
   const model = useMemo(() => {
     const m = clone(gltf.scene);
+    // Poses assume the figure faces +z; some exports face the other way, so turn their contents around.
+    if (facesBackwards(m)) {
+      const turn = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI);
+      for (const c of m.children) {
+        c.position.applyQuaternion(turn);
+        c.quaternion.premultiply(turn);
+      }
+    }
+    m.updateMatrixWorld(true);
     m.traverse((o) => {
       if ((o as Mesh).isMesh) {
         const mesh = o as Mesh;
@@ -240,7 +351,8 @@ function Character({ source, animation, view, playing, muscles, yaw }: Props) {
         // Characters may bring their own colours (skin, clothes); keep them as the base.
         const own = mesh.geometry.attributes.color;
         if (own) mesh.userData.base = Float32Array.from({ length: own.count * 3 }, (_, i) => own.getComponent(Math.floor(i / 3), i % 3));
-        mesh.material = withMuscleGlow(new MeshStandardMaterial({ vertexColors: true, roughness: own ? 0.62 : 0.35, metalness: 0, envMapIntensity: 0.8 }), pulse);
+        const outfit = own ? prepareOutfit(mesh as SkinnedMesh, mesh.userData.base) : null;
+        mesh.material = bodyMaterial(mesh.material as MeshStandardMaterial, !!own, pulse, outfit);
       }
     });
     return m;
@@ -249,6 +361,7 @@ function Character({ source, animation, view, playing, muscles, yaw }: Props) {
   useEffect(() => paintMuscles(model, muscles), [model, muscles]);
 
   const player = useMemo(() => new PosePlayer(model), [model]);
+
   const hips = useMemo(() => findHips(model), [model]);
 
   const time = useRef(0);
@@ -289,6 +402,19 @@ function Character({ source, animation, view, playing, muscles, yaw }: Props) {
   return <primitive object={model} />;
 }
 
+/** True when the toes point to -z in the rest pose. */
+function facesBackwards(model: Object3D): boolean {
+  let foot: Object3D | undefined;
+  let toe: Object3D | undefined;
+  model.traverse((o) => {
+    if (/^mixamorig:?LeftFoot$/.test(o.name)) foot = o;
+    if (/^mixamorig:?LeftToeBase$/.test(o.name)) toe = o;
+  });
+  if (!foot || !toe) return false;
+  model.updateMatrixWorld(true);
+  return toe.getWorldPosition(new Vector3()).z < foot.getWorldPosition(new Vector3()).z;
+}
+
 function findHips(model: Object3D): Object3D {
   let hips: Object3D = model;
   model.traverse((o) => {
@@ -301,7 +427,6 @@ function findHips(model: Object3D): Object3D {
 function paintMuscles(model: Object3D, muscles: string[]) {
   const wanted = new Set(muscles);
   const c = new Color();
-  const tint = new Color(colors.accent);
   model.traverse((o) => {
     const mesh = o as SkinnedMesh;
     if (!mesh.isSkinnedMesh) return;
@@ -324,8 +449,6 @@ function paintMuscles(model: Object3D, muscles: string[]) {
         heat[v] = w;
         if (base) c.setRGB(base[v * 3], base[v * 3 + 1], base[v * 3 + 2]);
         else c.set('#d9dde5');
-        // Only a light tint: the clothes and skin stay recognisable, the glow does the rest.
-        c.lerp(tint, w * 0.1);
         vertexColors.set([c.r, c.g, c.b], v * 3);
       }
     }
