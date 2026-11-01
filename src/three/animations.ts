@@ -385,7 +385,8 @@ export class PosePlayer {
     const out = this.joints.map((j) => {
       const parentQ = j.parent ? modelQ.get(j.parent)! : this.baseQuat;
       const q = parentQ.clone().multiply(j.restLocal);
-      const target = pose.bones[j.name];
+      // A forearm without its own direction continues the upper arm: a straight arm, whatever the rest pose's elbow bend.
+      const target = pose.bones[j.name] ?? (j.name.endsWith('ForeArm') ? pose.bones[j.name.replace('ForeArm', 'Arm') as Bone] : undefined);
       if (target) {
         const want = new Vector3(...target).normalize().applyQuaternion(untilt);
         const have = j.localDir.clone().applyQuaternion(q);
