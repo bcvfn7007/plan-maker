@@ -1,3 +1,4 @@
+import { suggest, type ExerciseLog } from './progress';
 import { EXERCISES, WARMUP_ID, type Exercise, type Focus, type Level, type Place } from '../data/exercises';
 
 export type Goal = 'strength' | 'weightloss' | 'fit';
@@ -22,6 +23,12 @@ export type PlanItem = {
   amount: number;
   timed: boolean;
   restSeconds: number;
+  /** Weight per hand for dumbbell exercises. */
+  kg?: number;
+  /** Why the amount changed since last time, e.g. "+1 повтор к прошлому разу". */
+  hint?: string;
+  /** The load went up since last time. */
+  up?: boolean;
 };
 
 export type DayPlan = {
@@ -60,16 +67,28 @@ function candidates(profile: Profile, focus: Focus, used: Set<string>): Exercise
   return [...fits.filter((e) => !profile.disliked.includes(e.id)), ...fits.filter((e) => profile.disliked.includes(e.id))];
 }
 
-export function planItem(profile: Profile, exercise: Exercise): PlanItem {
-  const sets = profile.level === 'beginner' ? 2 : 3;
+/** The starting amount for this person, before any history. */
+export function baseAmount(profile: Profile, exercise: Exercise): number {
   let amount = exercise.amount;
   if (profile.level === 'intermediate') amount = Math.round(amount * 1.3);
   if (profile.goal === 'strength' && !exercise.timed) amount = Math.max(6, Math.round(amount * 0.7));
-  const restSeconds = profile.goal === 'weightloss' ? 30 : profile.goal === 'strength' ? 90 : 60;
-  return { exerciseId: exercise.id, sets, amount, timed: !!exercise.timed, restSeconds };
+  return amount;
 }
 
-export function buildDayPlan(profile: Profile, date: string = dateKey()): DayPlan {
+/** One plan line. With a log, the amount and weight follow the last time (progressive load). */
+export function planItem(profile: Profile, exercise: Exercise, log: ExerciseLog = {}): PlanItem {
+  const sets = profile.level === 'beginner' ? 2 : 3;
+  const restSeconds = profile.goal === 'weightloss' ? 30 : profile.goal === 'strength' ? 90 : 60;
+  const startKg = exercise.weight?.start[profile.level];
+  const s = suggest(exercise, baseAmount(profile, exercise), startKg, log[exercise.id]);
+  const item: PlanItem = { exerciseId: exercise.id, sets, amount: s.amount, timed: !!exercise.timed, restSeconds };
+  if (s.kg !== undefined) item.kg = s.kg;
+  if (s.hint) item.hint = s.hint;
+  if (s.up) item.up = true;
+  return item;
+}
+
+export function buildDayPlan(profile: Profile, date: string = dateKey(), log: ExerciseLog = {}): DayPlan {
   const day = ROTATION[dayNumber(date) % ROTATION.length];
   const count = EXERCISE_COUNT[profile.minutes];
   const focusList = profile.goal === 'weightloss' ? withMoreCardio(day.focus) : day.focus;
@@ -84,7 +103,7 @@ export function buildDayPlan(profile: Profile, date: string = dateKey()): DayPla
     const pick = candidates(profile, focus, used)[0];
     if (!pick) continue;
     used.add(pick.id);
-    items.push(planItem(profile, pick));
+    items.push(planItem(profile, pick, log));
   }
   return { date, title: day.title, items };
 }
@@ -103,5 +122,6 @@ function withMoreCardio(focus: Focus[]): Focus[] {
 
 export function amountLabel(item: PlanItem) {
   const per = item.timed ? `${item.amount} сек` : `${item.amount} раз`;
-  return item.sets > 1 ? `${item.sets} × ${per}` : per;
+  const kg = item.kg !== undefined ? ` · ${String(item.kg).replace('.', ',')} кг` : '';
+  return (item.sets > 1 ? `${item.sets} × ${per}` : per) + kg;
 }

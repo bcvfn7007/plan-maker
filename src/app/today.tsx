@@ -15,7 +15,7 @@ import { Button, colors, Eyebrow, FOCUS, fonts, IconButton, IconTile, Ionicons, 
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
 export default function Today() {
-  const { profile, plan, setPlan, saveProfile } = useAppState();
+  const { profile, plan, log, setPlan, saveProfile } = useAppState();
   const [history, setHistory] = useState<Finished[]>([]);
   const [skill, setSkill] = useState<Skill | null>(null);
 
@@ -27,7 +27,9 @@ export default function Today() {
   );
 
   if (!profile || !plan) return null;
-  const doneToday = history.some((h) => h.date === plan.date);
+  // A workout stopped halfway is kept in the history, but the day does not count as done.
+  const full = history.filter((h) => !h.partial);
+  const doneToday = full.some((h) => h.date === plan.date);
 
   const replace = async (index: number) => {
     const next = replacement(profile, plan, index);
@@ -36,7 +38,7 @@ export default function Today() {
     const swapped = plan.items[index].exerciseId;
     // Remember what the user swapped out, so later plans offer it less.
     await saveProfile({ ...profile, disliked: [...new Set([...profile.disliked, swapped])] });
-    const items = plan.items.map((it, i) => (i === index ? planItem(profile, next) : it));
+    const items = plan.items.map((it, i) => (i === index ? planItem(profile, next, log) : it));
     await setPlan({ ...plan, items });
   };
 
@@ -51,7 +53,7 @@ export default function Today() {
           <IconButton icon="options-outline" label="Изменить ответы" onPress={() => router.push('/onboarding')} />
         </View>
 
-        <Week history={history} />
+        <Week history={full} />
 
         <LinearGradient colors={['#1d2a0c', '#141a10', colors.card]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
           <View style={{ gap: 6 }}>
@@ -66,10 +68,12 @@ export default function Today() {
             <View style={styles.statLine} />
             <Stat value={`~${profile.minutes}`} label="минут" />
             <View style={styles.statLine} />
-            <Stat value={String(history.length)} label="тренировок" />
+            <Stat value={String(full.length)} label="тренировок" />
           </View>
           <Button title={doneToday ? 'Пройти ещё раз' : 'Начать тренировку'} icon="play" onPress={() => router.push('/workout')} />
         </LinearGradient>
+
+        <HistoryCard history={full} />
 
         <SkillCard skill={skill} />
 
@@ -96,7 +100,9 @@ export default function Today() {
                   </Text>
                   <Text style={[text.muted, { fontSize: 13 }]} numberOfLines={1}>
                     {i === 0 ? 'Разминка · ' : ''}
-                    <Text style={{ color: colors.text, fontFamily: fonts.bodyBold }}>{amountLabel(item)}</Text>
+                    {item.up && <MaterialCommunityIcons name="trending-up" size={14} color={colors.accent} />}
+                    {item.up ? ' ' : ''}
+                    <Text style={{ color: item.up ? colors.accent : colors.text, fontFamily: fonts.bodyBold }}>{amountLabel(item)}</Text>
                     {'  ·  '}
                     {ex.targets.join(', ')}
                   </Text>
@@ -123,6 +129,23 @@ export default function Today() {
         </Pressable>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/** The way into the workout history and progress charts. */
+function HistoryCard({ history }: { history: Finished[] }) {
+  const last = history[0];
+  return (
+    <Pressable onPress={() => router.push('/history')} style={({ pressed }) => [styles.libraryLink, pressed && { opacity: 0.85 }]}>
+      <IconTile icon="chart-line" />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={text.h3}>История и прогресс</Text>
+        <Text style={[text.muted, { fontSize: 13 }]} numberOfLines={1}>
+          {last ? `Последняя: ${last.title}, ${last.minutes} мин` : 'Веса, повторы и рекорды по каждому упражнению'}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.faint} />
+    </Pressable>
   );
 }
 

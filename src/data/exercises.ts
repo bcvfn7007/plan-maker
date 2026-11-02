@@ -22,6 +22,8 @@ export type Exercise = {
   steps: string[];
   mistakes: string[];
   avoidIf?: string;
+  /** Exercises with dumbbells: starting weight per level and the step to add, in kg per hand. */
+  weight?: { start: Record<Level, number>; step: number };
 };
 
 const LEGS = ['Hips', 'LeftUpLeg', 'RightUpLeg', 'LeftLeg', 'RightLeg'];
@@ -108,6 +110,7 @@ export const EXERCISES: Exercise[] = [
     places: ['home', 'gym'],
     levels: ['beginner', 'intermediate'],
     amount: 12,
+    weight: { start: { beginner: 3, intermediate: 6 }, step: 1 },
     animation: 'shoulderPress',
     muscles: ['LeftShoulder', 'RightShoulder', 'LeftArm', 'RightArm'],
     targets: ['Плечи'],
@@ -126,6 +129,7 @@ export const EXERCISES: Exercise[] = [
     places: ['home', 'gym'],
     levels: ['beginner', 'intermediate'],
     amount: 12,
+    weight: { start: { beginner: 4, intermediate: 7 }, step: 1 },
     animation: 'curl',
     muscles: ['LeftArm', 'RightArm'],
     targets: ['Бицепс'],
@@ -143,6 +147,7 @@ export const EXERCISES: Exercise[] = [
     places: ['gym'],
     levels: ['intermediate'],
     amount: 12,
+    weight: { start: { beginner: 6, intermediate: 10 }, step: 2 },
     animation: 'row',
     muscles: ['Spine1', 'Spine2', 'LeftShoulder', 'RightShoulder', 'LeftArm', 'RightArm'],
     targets: ['Спина'],
