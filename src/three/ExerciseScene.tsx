@@ -181,7 +181,7 @@ function Studio() {
       <directionalLight position={[-3, 1.8, 2]} intensity={0.45} color="#9fb4ff" />
       {/* Rim lights from behind outline the figure against the dark stage. */}
       {/* Kept low so they skim the body and barely touch the floor. */}
-      <directionalLight position={[-2.8, 1.3, -3.5]} intensity={2.4} color={colors.accent} />
+      <directionalLight position={[-2.8, 0.5, -3.5]} intensity={1.2} color={colors.accent} />
       <directionalLight position={[3, 1.6, -3]} intensity={1.6} color="#ffffff" />
 
       {/* The floor is a pool of light that fades into the dark, so there is no horizon line.
@@ -222,6 +222,8 @@ const TRIM = new Color(colors.accent);
  * and the working muscles glow and pulse.
  */
 function bodyMaterial(original: MeshStandardMaterial, own: boolean, pulse: { value: number }, outfit: Outfit | null) {
+  // Garments, hair and shoes are separate meshes on the pro coach: they get a soft, even tint instead of the skin glow.
+  const surface = /eye/i.test(original.name) ? 0 : /tee|shirt|short|shoe|sole|stripe|hair|pony|tie/i.test(original.name) ? 1 : 2;
   // Textured characters (e.g. from Mixamo) keep their own skin and clothes textures.
   // Characters that bring finished materials (textures or plain colours, e.g. Mixamo or the pro coach) keep them;
   // only vertex-coloured ones and the bare mannequin get the generated material.
@@ -232,10 +234,18 @@ function bodyMaterial(original: MeshStandardMaterial, own: boolean, pulse: { val
   if (finished) {
     material.vertexColors = false;
     material.envMapIntensity = 0.8;
+    // Hair and fabric are matte: studio reflections on them read as grey plastic patches.
+    if (/hair|pony/i.test(original.name)) {
+      material.roughness = Math.max(material.roughness, 0.92);
+      material.envMapIntensity = 0.2;
+    } else if (/tee|shirt|short/i.test(original.name)) {
+      material.envMapIntensity = 0.45;
+    }
   }
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     shader.uniforms.heatColor = { value: ACCENT };
     shader.uniforms.heatPulse = pulse;
+    shader.uniforms.surface = { value: surface };
     const o = outfit ?? { neck: 99, waist: 99, hem: 99, shoulder: 0, armpit: 99, front: 0 };
     shader.uniforms.outfit = { value: [o.neck, o.waist, o.hem, o.shoulder, o.armpit, o.front] };
     shader.uniforms.topColor = { value: TOP };
@@ -248,15 +258,17 @@ function bodyMaterial(original: MeshStandardMaterial, own: boolean, pulse: { val
       .replace(
         '#include <common>',
         `#include <common>
-        uniform vec3 heatColor; uniform float heatPulse; varying float vHeat; varying vec3 vRest;
+        uniform vec3 heatColor; uniform float heatPulse; uniform int surface; varying float vHeat; varying vec3 vRest;
         uniform float outfit[6]; uniform vec3 topColor; uniform vec3 shortsColor; uniform vec3 trimColor;
-        float clothMask; float trimMask;
+        float clothMask; float trimMask; float hairish;
         // 1 above the line, 0 below, anti-aliased over one pixel.
         float edge(float v, float line) { float w = max(fwidth(v), 0.0006); return smoothstep(line - w, line + w, v); }`,
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
+        // Hair and brows painted on the skin are near black-brown: they must stay matte, not shine like skin.
+        hairish = surface == 2 ? 1.0 - smoothstep(0.04, 0.12, dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))) : 0.0;
         {
           float neck = outfit[0], waist = outfit[1], hem = outfit[2], shoulder = outfit[3], armpit = outfit[4], frontZ = outfit[5];
           float ax = abs(vRest.x), y = vRest.y;
@@ -276,17 +288,29 @@ function bodyMaterial(original: MeshStandardMaterial, own: boolean, pulse: { val
           diffuseColor.rgb = mix(diffuseColor.rgb, cloth, clothMask);
         }`,
       )
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.92, clothMask);')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.92, max(clothMask, hairish));')
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.indirectSpecular *= 1.0 - 0.85 * hairish;\nreflectedLight.directSpecular *= 1.0 - 0.7 * hairish;')
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
         totalEmissiveRadiance += trimColor * trimMask * 0.25;
-        // Glow stronger where the surface turns away from the camera: reads as light under the skin.
-        float rim = 1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition)));
-        totalEmissiveRadiance += heatColor * vHeat * (0.05 + 0.5 * rim * rim) * heatPulse * (1.0 - 0.45 * clothMask);`,
+        if (surface == 2) {
+          // Skin: glow stronger where the surface turns away from the camera, like light under the skin.
+          // The rim fades out right at the silhouette, where it would flicker from pixel to pixel.
+          float facing = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+          float rim = (1.0 - facing) * smoothstep(0.0, 0.25, facing);
+          totalEmissiveRadiance += heatColor * vHeat * (0.06 + 1.1 * rim * rim) * heatPulse * (1.0 - 0.45 * clothMask);
+        } else if (surface == 1 && gl_FrontFacing) {
+          // Fabric: a soft glow over the core of the working muscles, never on the inside of the clothes.
+          // Faint weights are left out, so the shirt does not get a blotchy tint.
+          float facing = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+          float rim = (1.0 - facing) * smoothstep(0.0, 0.3, facing);
+          float core = smoothstep(0.35, 0.85, vHeat);
+          totalEmissiveRadiance += heatColor * core * (0.02 + 0.45 * rim * rim) * heatPulse;
+        }`,
       );
   };
-  material.customProgramCacheKey = () => 'coach-body';
+  material.customProgramCacheKey = () => `coach-body-${surface}`;
   return material;
 }
 
@@ -459,7 +483,62 @@ function paintMuscles(model: Object3D, muscles: string[]) {
       }
     }
     geo.setAttribute('color', new BufferAttribute(vertexColors, 3));
-    geo.setAttribute('heat', new BufferAttribute(heat, 1));
+    geo.setAttribute('heat', new BufferAttribute(smoothAlongSurface(geo, heat, 4), 1));
   });
 }
 
+
+/**
+ * Averages a per-vertex value with its neighbours a few times, so the glow fades softly
+ * instead of following the blocky edges of the skin weights. Neighbours come from the triangles
+ * and from vertices at the same spot (UV seams split vertices).
+ */
+function smoothAlongSurface(geo: SkinnedMesh['geometry'], values: Float32Array, rounds: number): Float32Array {
+  const count = values.length;
+  let neighbours: Int32Array[] | undefined = geo.userData.neighbours;
+  if (!neighbours) {
+    const pos = geo.attributes.position;
+    // Vertices at the same spot share one id.
+    const ids = new Int32Array(count);
+    const seen = new Map<string, number>();
+    for (let v = 0; v < count; v++) {
+      const key = `${pos.getX(v).toFixed(4)},${pos.getY(v).toFixed(4)},${pos.getZ(v).toFixed(4)}`;
+      const id = seen.get(key);
+      if (id === undefined) seen.set(key, (ids[v] = seen.size));
+      else ids[v] = id;
+    }
+    const sets: Set<number>[] = Array.from({ length: seen.size }, () => new Set());
+    const index = geo.index;
+    const tri = index ? index.count : count;
+    for (let t = 0; t < tri; t += 3) {
+      const a = ids[index ? index.getX(t) : t], b = ids[index ? index.getX(t + 1) : t + 1], c = ids[index ? index.getX(t + 2) : t + 2];
+      sets[a].add(b).add(c);
+      sets[b].add(a).add(c);
+      sets[c].add(a).add(b);
+    }
+    neighbours = sets.map((n) => Int32Array.from(n));
+    geo.userData.neighbours = neighbours;
+    geo.userData.ids = ids;
+  }
+  const ids: Int32Array = geo.userData.ids;
+  let cur = new Float32Array(neighbours.length);
+  const n = new Float32Array(neighbours.length);
+  for (let v = 0; v < count; v++) {
+    cur[ids[v]] += values[v];
+    n[ids[v]] += 1;
+  }
+  for (let i = 0; i < cur.length; i++) cur[i] /= n[i] || 1;
+  for (let r = 0; r < rounds; r++) {
+    const next = new Float32Array(cur.length);
+    for (let i = 0; i < cur.length; i++) {
+      const list = neighbours[i];
+      let sum = cur[i];
+      for (let k = 0; k < list.length; k++) sum += cur[list[k]];
+      next[i] = sum / (list.length + 1);
+    }
+    cur = next;
+  }
+  const out = new Float32Array(count);
+  for (let v = 0; v < count; v++) out[v] = cur[ids[v]];
+  return out;
+}

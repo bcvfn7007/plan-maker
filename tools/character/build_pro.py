@@ -243,6 +243,40 @@ def bw(wmap, n, *names):
 
 
 # ------------------------------------------------------------------ clothes
+def smooth_weights(ob, rounds):
+    """Blends each vertex's bone weights with its neighbours', keeps the 4 strongest bones.
+    Fabric copied from the body inherits blocky weights; when the arms go up, they tear the collar into a zig-zag."""
+    me = ob.data
+    n = len(me.vertices)
+    bones = [g for g in ob.vertex_groups if g.name.startswith('mixamorig:')]
+    col = {g.index: k for k, g in enumerate(bones)}
+    w = np.zeros((n, len(bones)))
+    for v in me.vertices:
+        for g in v.groups:
+            if g.group in col:
+                w[v.index, col[g.group]] = g.weight
+    ed = np.array([e.vertices[:] for e in me.edges])
+    # Vertices at the same spot (the hem rims of the solidified fabric) move together.
+    key = {}
+    same = np.array([key.setdefault(tuple(np.round(v.co[:], 5)), v.index) for v in me.vertices])
+    deg = np.bincount(ed.ravel(), minlength=n) + 1.0
+    for _ in range(rounds):
+        acc_ = w.copy()
+        np.add.at(acc_, ed[:, 0], w[ed[:, 1]])
+        np.add.at(acc_, ed[:, 1], w[ed[:, 0]])
+        w = 0.5 * w + 0.5 * acc_ / deg[:, None]
+        w = w[same]
+    order = np.argsort(-w, axis=1)
+    w[np.arange(n)[:, None], order[:, 4:]] = 0
+    w /= w.sum(1, keepdims=True) + 1e-12
+    for g in bones:
+        g.remove(list(range(n)))
+    for k, g in enumerate(bones):
+        idx = np.nonzero(w[:, k] > 1e-4)[0]
+        for i in idx:
+            g.add([int(i)], float(w[i, k]), 'REPLACE')
+
+
 def cloth(name, keep, cuts, push, thick, color, rough=0.85, extra=None):
     """Copy the body faces where `keep` holds, cut clean straight edges with planes, push out, give thickness."""
     me = body.data
@@ -283,7 +317,8 @@ def cloth(name, keep, cuts, push, thick, color, rough=0.85, extra=None):
         bmesh.ops.smooth_vert(bm, verts=chest, factor=0.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
     bm.normal_update()
     for v in bm.verts:
-        v.co += v.normal * (push + extra(v.co) if extra else push)
+        # The fabric's thickness goes inwards (see the Solidify below), so the outside sits where `push` puts it.
+        v.co += v.normal * ((push + extra(v.co) if extra else push) + thick)
     for plane_co, plane_no, only in cuts:
         geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
         if only is not None:
@@ -299,6 +334,23 @@ def cloth(name, keep, cuts, push, thick, color, rough=0.85, extra=None):
             geom = list({v for f in sel for v in f.verts}) + list({e for f in sel for e in f.edges}) + list(sel)
         bmesh.ops.bisect_plane(bm, geom=geom, plane_co=plane_co, plane_no=plane_no, clear_outer=True)
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    # The cuts leave slivers along the hems and the odd stray point (it showed as a thin line down to the floor).
+    bmesh.ops.dissolve_degenerate(bm, dist=0.0015, edges=bm.edges[:])
+    stray = [f for f in bm.faces if any(e.calc_length() > 0.05 for e in f.edges)]
+    bmesh.ops.delete(bm, geom=stray, context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    # Even out the hems: each edge point moves halfway to the middle of its two neighbours along the edge.
+    # They all lie in the cut plane, so the hem stays straight, just without the zig-zag.
+    rim = [v for v in bm.verts if v.is_boundary]
+    for _ in range(3):
+        moved = {}
+        for v in rim:
+            nb = [e.other_vert(v) for e in v.link_edges if e.is_boundary]
+            if len(nb) == 2:
+                moved[v] = v.co * 0.5 + (nb[0].co + nb[1].co) * 0.25
+        for v, c in moved.items():
+            v.co = c
+    print(name, 'removed stray faces:', len(stray))
     m2 = bpy.data.meshes.new(name)
     bm.to_mesh(m2)
     bm.free()
@@ -311,11 +363,13 @@ def cloth(name, keep, cuts, push, thick, color, rough=0.85, extra=None):
     bpy.context.view_layer.objects.active = ob
     sol = ob.modifiers.new('Sol', 'SOLIDIFY')
     sol.thickness = thick
-    sol.offset = 1
+    # Inwards: an outward shell folds over itself in the creases (under the chest) and shows as small spikes.
+    sol.offset = -1
     sol.use_rim = True
     sol.use_even_offset = True
     for m in list(ob.modifiers):
         bpy.ops.object.modifier_apply(modifier=m.name)
+    smooth_weights(ob, 6)
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes['Principled BSDF']
